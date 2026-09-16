@@ -18,7 +18,7 @@ const db = await jsonDb('epic-games.json', {});
 if (cfg.time) console.time('startup');
 
 // https://playwright.dev/docs/auth#multi-factor-authentication
-const context = await launchContext({
+const context = await launchContext(cfg, {
   channel: 'chrome',
   args: [
     '--ignore-gpu-blocklist',

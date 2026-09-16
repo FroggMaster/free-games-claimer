@@ -17,7 +17,7 @@ if (cfg.width < 1280) { // otherwise 'Sign in' and #menuUsername are hidden (but
 }
 
 // https://playwright.dev/docs/auth#multi-factor-authentication
-const context = await launchContext({
+const context = await launchContext(cfg, {
   channel: 'chrome',
   args: [
     '--ignore-gpu-blocklist',

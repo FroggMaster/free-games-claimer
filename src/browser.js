@@ -19,11 +19,13 @@ const ENGINES = {
  * Launches a persistent browser context with the automation engine selected via
  * the AUTOMATION option (default: patchright). Options are passed through as-is,
  * so the storefront scripts don't need to know which library is used.
+ * `cfg` is passed in by the caller (instead of importing src/config.js here) to
+ * avoid a circular import while config.js and util.js are still initializing.
+ * @param {object} cfg the loaded configuration (src/config.js)
  * @param {object} options options for `launchPersistentContext` (without the user data dir)
  * @returns {Promise<object>} the launched browser context
  */
-export const launchContext = async options => {
-  const { cfg } = await import('./config.js'); // lazy import avoids a circular import (config.js <-> util.js)
+export const launchContext = async (cfg, options) => {
   const engine = ENGINES[cfg.automation];
   if (!engine) {
     throw new Error(`Unknown AUTOMATION "${cfg.automation}". Supported values: ${Object.keys(ENGINES).join(', ')}.`);

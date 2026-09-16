@@ -15,7 +15,7 @@ console.log(datetime(), 'started checking prime-gaming');
 const db = await jsonDb('prime-gaming.json', {});
 
 // https://playwright.dev/docs/auth#multi-factor-authentication
-const context = await launchContext({
+const context = await launchContext(cfg, {
   channel: 'chrome',
   args: [
     '--ignore-gpu-blocklist',
