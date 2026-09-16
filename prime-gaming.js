@@ -1,22 +1,29 @@
-import { firefox } from 'playwright-firefox'; // stealth plugin needs no outdated playwright-extra
+import { launchContext } from './src/browser.js';
 import { authenticator } from 'otplib';
 import chalk from 'chalk';
-import { resolve, jsonDb, datetime, stealth, filenamify, prompt, confirm, notify, html_game_list, handleSIGINT } from './src/util.js';
+import { resolve, jsonDb, datetime, filenamify, prompt, confirm, notify, html_game_list, handleSIGINT } from './src/util.js';
 import { cfg } from './src/config.js';
 
 const screenshot = (...a) => resolve(cfg.dir.screenshots, 'prime-gaming', ...a);
 
 // const URL_LOGIN = 'https://www.amazon.de/ap/signin'; // wrong. needs some session args to be valid?
-const URL_CLAIM = 'https://gaming.amazon.com/home';
+const BASE_URL = 'https://luna.amazon.com'; // Prime Gaming was rebranded/migrated to Amazon Luna
+const URL_CLAIM = `${BASE_URL}/claims/home`;
 
 console.log(datetime(), 'started checking prime-gaming');
 
 const db = await jsonDb('prime-gaming.json', {});
 
 // https://playwright.dev/docs/auth#multi-factor-authentication
-const context = await firefox.launchPersistentContext(cfg.dir.browser, {
-  headless: cfg.headless,
-  viewport: { width: cfg.width, height: cfg.height },
+const context = await launchContext({
+  channel: 'chrome',
+  args: [
+    '--ignore-gpu-blocklist',
+    '--use-gl=angle',
+    '--use-angle=gl-egl',
+  ],
+  headless: false,
+  viewport: null,
   locale: 'en-US', // ignore OS locale to be sure to have english text for locators
   recordVideo: cfg.record ? { dir: 'data/record/', size: { width: cfg.width, height: cfg.height } } : undefined, // will record a .webm video for each page navigated; without size, video would be scaled down to fit 800x800
   recordHar: cfg.record ? { path: `data/record/pg-${filenamify(datetime())}.har` } : undefined, // will record a HAR file with network requests and responses; can be imported in Chrome devtools
@@ -24,9 +31,6 @@ const context = await firefox.launchPersistentContext(cfg.dir.browser, {
 });
 
 handleSIGINT(context);
-
-// TODO test if needed
-await stealth(context);
 
 if (!cfg.debug) context.setDefaultTimeout(cfg.timeout);
 
@@ -82,7 +86,7 @@ try {
         process.exit(1);
       }
     }
-    await page.waitForURL('https://gaming.amazon.com/home?signedIn=true');
+    await page.waitForURL(`${BASE_URL}/claims/home?signedIn=true`);
     if (!cfg.debug) context.setDefaultTimeout(cfg.timeout);
   }
   user = await page.locator('[data-a-target="user-dropdown-first-name-text"]').first().innerText();
@@ -156,7 +160,7 @@ try {
     await card.scrollIntoViewIfNeeded();
     const title = await (await card.$('.item-card-details__body__primary')).innerText();
     const slug = await (await card.$('a')).getAttribute('href');
-    const url = 'https://gaming.amazon.com' + slug.split('?')[0];
+    const url = `${BASE_URL}${slug.split('?')[0]}`;
     console.log('Current free game:', chalk.blue(title));
     if (cfg.pg_timeLeft && await skipBasedOnTime(url)) continue;
     if (cfg.dryrun) continue;
@@ -174,7 +178,7 @@ try {
   for (const card of external) { // need to get data incl. URLs in this loop and then navigate in another, otherwise .all() would update after coming back and .elementHandles() like above would lead to error due to page navigation: elementHandle.$: Protocol error (Page.adoptNode)
     const title = await card.locator('.item-card-details__body__primary').innerText();
     const slug = await card.locator('a:has-text("Claim")').first().getAttribute('href');
-    const url = 'https://gaming.amazon.com' + slug.split('?')[0];
+    const url = `${BASE_URL}${slug.split('?')[0]}`;
     // await (await card.$('text=Claim')).click(); // goes to URL of game, no need to wait
     external_info.push({ title, url });
   }
@@ -183,7 +187,24 @@ try {
     console.log('Current free game:', chalk.blue(title)); // , url);
     await page.goto(url, { waitUntil: 'domcontentloaded' });
     if (cfg.debug) await page.pause();
-    const item_text = await page.innerText('[data-a-target="DescriptionItemDetails"]');
+    // The offer detail page is not always available: expired/rebranded offers show an error page instead.
+    // Wait for the details element *or* the error page, instead of blocking the full timeout for one of them.
+    const details = page.locator('[data-a-target="DescriptionItemDetails"]');
+    const errorPage = page.locator('text=We had a problem processing that request');
+    await Promise.any([details.waitFor(), errorPage.waitFor()]).catch(_ => { }); // rejects only if neither shows up
+    if (await errorPage.count()) {
+      console.error('  Amazon returned an error page (offer unavailable / 404) - skipping.');
+      db.data[user][title] ||= { title, time: datetime(), url, status: 'failed: unavailable (404)' };
+      notify_games.push({ title, url, status: 'failed: unavailable (404)' });
+      continue;
+    }
+    if (!await details.count()) {
+      console.error('  Could not find the offer details on the page - skipping.');
+      db.data[user][title] ||= { title, time: datetime(), url, status: 'failed: page structure changed' };
+      notify_games.push({ title, url, status: 'failed: page structure changed' });
+      continue;
+    }
+    const item_text = await details.innerText();
     const store = item_text.toLowerCase().replace(/.* on /, '').slice(0, -1);
     console.log('  External store:', store);
     if (cfg.pg_timeLeft && await skipBasedOnTime(url)) continue;
@@ -375,7 +396,7 @@ try {
     const dlcs = await Promise.all(cards.map(async card => ({
       game: await card.locator('.item-card-details__body p').innerText(),
       title: await card.locator('.item-card-details__body__primary').innerText(),
-      url: 'https://gaming.amazon.com' + await card.locator('a').first().getAttribute('href'),
+      url: `${BASE_URL}${await card.locator('a').first().getAttribute('href')}`,
     })));
     // console.log(dlcs);
 

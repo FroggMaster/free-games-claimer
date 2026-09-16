@@ -36,19 +36,19 @@ Data (including json files with claimed games, codes to redeem, screenshots) is 
 
 1. [Install Node.js](https://nodejs.org/en/download)
 2. Clone/download this repository and `cd` into it in a terminal
-3. Run `npm install`
+3. Run `npm install && npx patchright install chrome`
 4. Run `pip install apprise` (or use [pipx](https://github.com/pypa/pipx) if you have [problems](https://stackoverflow.com/questions/75608323/how-do-i-solve-error-externally-managed-environment-every-time-i-use-pip-3)) to install [apprise](https://github.com/caronc/apprise) if you want notifications
 5. To get updates: `git pull; npm install`
 6. Run `node epic-games`, `node prime-gaming`, `node gog`...
 
-During `npm install` Playwright will download its Firefox to a cache in home ([doc](https://playwright.dev/docs/browsers#managing-browser-binaries)).
-If you are missing some dependencies for the browser on your system, you can use `sudo npx playwright install firefox --with-deps`.
+The browser automation uses [Patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright) (a stealth-patched Playwright for Chromium); `npx patchright install chrome` downloads its browser to a cache in home ([doc](https://playwright.dev/docs/browsers#managing-browser-binaries)).
+If you are missing some dependencies for the browser on your system, you can use `sudo npx patchright install chrome --with-deps`.
 
 If you don't want to use Docker for quasi-headless mode, you could run inside a virtual machine, on a server, or you wake your PC at night to avoid being interrupted.
 </details>
 
 ## Usage
-All scripts start an automated Firefox instance, either with the browser GUI shown or hidden (*headless mode*). By default, you won't see any browser open on your host system.
+All scripts start an automated browser instance via Patchright (Chromium). The storefront scripts (`epic-games`, `prime-gaming`, `gog`) run with the browser shown to avoid captcha challenges; the other scripts run hidden unless `SHOW=1` is set.
 
 - When running inside Docker, the browser will be shown only inside the container. You can open http://localhost:6080 to interact with the browser running inside the container via noVNC (or use other VNC clients on port 5900).
 - When running the scripts outside of Docker, the browser will be hidden by default; you can use `SHOW=1 ...` to show the UI (see options below).
@@ -95,6 +95,24 @@ Available options/variables and their default values:
 | LG_EMAIL        |         	| Legacy Games: email to use for redeeming (if not set, defaults to PG_EMAIL)  |
 
 See `src/config.js` for all options.
+
+#### Browser automation
+
+The scripts drive a Chromium browser through [Patchright](https://github.com/Kaliiiiiiiiii-Vinyzu/patchright) by default - a stealth-patched
+[Playwright](https://playwright.dev) build for Chromium that avoids bot/captcha detection. You can choose the engine with the `AUTOMATION` option:
+
+| Option      | Default    | Description                                                                        |
+|-------------|------------|------------------------------------------------------------------------------------|
+| AUTOMATION  | patchright | Browser automation engine to use: `patchright` (default) or `playwright`.          |
+
+```sh
+AUTOMATION=patchright node epic-games   # default
+AUTOMATION=playwright node epic-games   # plain Playwright (Chromium)
+```
+
+- `patchright` (default) is installed with `npm install && npx patchright install chrome`.
+- `playwright` is optional and must be installed separately: `npm install playwright && npx playwright install chrome`.
+- If the selected engine is not installed, the script fails with a clear error message telling you how to install it - it does not silently fall back.
 
 #### How to set options
 You can add options directly in the command or put them in a file to load.

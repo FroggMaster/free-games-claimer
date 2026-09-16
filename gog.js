@@ -1,6 +1,6 @@
-import { firefox } from 'playwright-firefox'; // stealth plugin needs no outdated playwright-extra
+import { launchContext } from './src/browser.js';
 import chalk from 'chalk';
-import { resolve, jsonDb, datetime, filenamify, prompt, notify, html_game_list, handleSIGINT } from './src/util.js';
+import { resolve, jsonDb, datetime, delay, filenamify, prompt, notify, html_game_list, handleSIGINT } from './src/util.js';
 import { cfg } from './src/config.js';
 
 const screenshot = (...a) => resolve(cfg.dir.screenshots, 'gog', ...a);
@@ -17,9 +17,15 @@ if (cfg.width < 1280) { // otherwise 'Sign in' and #menuUsername are hidden (but
 }
 
 // https://playwright.dev/docs/auth#multi-factor-authentication
-const context = await firefox.launchPersistentContext(cfg.dir.browser, {
-  headless: cfg.headless,
-  viewport: { width: cfg.width, height: cfg.height },
+const context = await launchContext({
+  channel: 'chrome',
+  args: [
+    '--ignore-gpu-blocklist',
+    '--use-gl=angle',
+    '--use-angle=gl-egl',
+  ],
+  headless: false,
+  viewport: null,
   locale: 'en-US', // ignore OS locale to be sure to have english text for locators -> done via /en in URL
   recordVideo: cfg.record ? { dir: 'data/record/', size: { width: cfg.width, height: cfg.height } } : undefined, // will record a .webm video for each page navigated; without size, video would be scaled down to fit 800x800
   recordHar: cfg.record ? { path: `data/record/gog-${filenamify(datetime())}.har` } : undefined, // will record a HAR file with network requests and responses; can be imported in Chrome devtools
@@ -43,10 +49,54 @@ try {
   await page.goto(URL_CLAIM, { waitUntil: 'domcontentloaded' }); // default 'load' takes forever
 
   // page.click('#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll').catch(_ => { }); // does not work reliably, solved by setting CookieConsent above
-  const signIn = page.locator('a:has-text("Sign in")').first();
-  await Promise.any([signIn.waitFor(), page.waitForSelector('#menuUsername')]);
-  while (await signIn.isVisible()) {
+  // GOG's new `menu-v3` header no longer has `a:has-text("Sign in")` or `#menuUsername`:
+  // the sign in control is a button and the username only appears inside the account dropdown.
+  const signIn = page.locator('button[gog-menu-v3-auth-action="login"], a:has-text("Sign in")').first();
+  const usernameLabel = page.locator('.menu-v3__user-header-title, #menuUsername').first();
+  // `/v1/account/basic` (backing `localStorage.dataClient_menuData`) reports the login state independent
+  // of the header markup. Returns true/false, or null if it can't be determined.
+  const getLoginState = async () => {
+    const fromApi = await page.evaluate(async () => {
+      try {
+        // eslint-disable-next-line no-undef
+        const menuData = JSON.parse(localStorage.getItem('dataClient_menuData'));
+        if (menuData && typeof menuData.isLoggedIn == 'boolean') return menuData.isLoggedIn;
+      } catch { /* no/!json cache yet */ }
+      try {
+        const response = await fetch('https://menu.gog.com/v1/account/basic', { credentials: 'include' });
+        if (response.ok) return (await response.json()).isLoggedIn === true;
+      } catch { /* fall back to the DOM below */ }
+      return null;
+    });
+    if (fromApi !== null) return fromApi;
+    // Fallbacks for older/alternate GOG layouts
+    if (await page.locator('#menuUsername').count()) return true;
+    if (await signIn.isVisible().catch(_ => false)) return false;
+    return null;
+  };
+  // Poll the login state instead of waiting for a specific element to become visible
+  const waitForLogin = async () => {
+    const deadline = Date.now() + (cfg.debug ? cfg.timeout : cfg.login_timeout);
+    while (Date.now() < deadline) {
+      if (await getLoginState() === true) return true;
+      await delay(1000);
+    }
+    return false;
+  };
+  while (true) {
+    const signedIn = await getLoginState();
+    if (signedIn === true) break;
+    if (signedIn === null) {
+      console.error('Could not determine GOG login state - page structure changed?');
+      break;
+    }
     console.error('Not signed in anymore.');
+    // The header is rendered by JS, so allow a short, targeted wait for the sign in button to appear
+    await signIn.waitFor({ timeout: 10000 }).catch(_ => { });
+    if (await signIn.count() == 0) {
+      console.error('Could not find the GOG sign in button - page structure changed?');
+      break;
+    }
     await signIn.click();
     // it then creates an iframe for the login
     await page.waitForSelector('#GalaxyAccountsFrameContainer iframe'); // TODO needed?
@@ -58,10 +108,14 @@ try {
     const email = cfg.gog_email || await prompt({ message: 'Enter email' });
     const password = email && (cfg.gog_password || await prompt({ type: 'password', message: 'Enter password' }));
     if (email && password) {
-      iframe.locator('a[href="/logout"]').click().catch(_ => { }); // Click 'Change account' (email from previous login is set in some cookie)
-      await iframe.locator('#login_username').fill(email);
+      // The 'Change account' link (a[href="/logout"]) no longer always exists; if the username field is
+      // already prefilled (and disabled), leave it as is instead of trying to fill it
+      if (!await iframe.locator('#login_username').isDisabled()) {
+        await iframe.locator('#login_username').fill(email);
+      }
       await iframe.locator('#login_password').fill(password);
       await iframe.locator('#login_login').click();
+      await page.waitForTimeout(2000); // patchright otherwise waits forever for the MFA locator below
       // handle MFA, but don't await it
       iframe.locator('form[name=second_step_authentication]').waitFor().then(async () => {
         console.log('Two-Step Verification - Enter security code');
@@ -78,7 +132,6 @@ try {
         notify('gog: got captcha during login. Please check.');
         // TODO solve reCAPTCHA?
       }).catch(_ => { });
-      await page.waitForSelector('#menuUsername');
     } else {
       console.log('Waiting for you to login in the browser.');
       await notify('gog: no longer signed in and not enough options set for automatic login.');
@@ -88,10 +141,19 @@ try {
         process.exit(1);
       }
     }
-    await page.waitForSelector('#menuUsername');
+    // Poll the login state instead of waiting for a specific element, and fail gracefully on timeout
+    if (!await waitForLogin()) throw new Error('GOG: not signed in after login attempt (timeout).');
     if (!cfg.debug) context.setDefaultTimeout(cfg.timeout);
   }
-  user = await page.locator('#menuUsername').first().textContent(); // innerText is uppercase due to styling!
+  // The username now lives in the account dropdown; `userData.json` also exposes it. Fall back to the old element.
+  user = await page.evaluate(async () => {
+    try {
+      const data = await (await fetch('https://www.gog.com/userData.json', { credentials: 'include' })).json();
+      if (data?.username) return data.username;
+    } catch { /* fall back below */ }
+    return null;
+  }) || (await usernameLabel.textContent())?.trim() || await page.locator('#menuUsername').first().textContent() || 'me';
+  if (user == 'Account') user = 'me'; // the dropdown title falls back to the literal 'Account' until the account is loaded
   console.log(`Signed in as ${user}`);
   db.data[user] ||= {};
 

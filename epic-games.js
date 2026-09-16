@@ -1,9 +1,9 @@
-import { firefox } from 'playwright-firefox'; // stealth plugin needs no outdated playwright-extra
+import { launchContext } from './src/browser.js';
 import { authenticator } from 'otplib';
 import chalk from 'chalk';
 import path from 'path';
-import { existsSync, writeFileSync, appendFileSync } from 'fs';
-import { resolve, jsonDb, datetime, stealth, filenamify, prompt, notify, html_game_list, handleSIGINT } from './src/util.js';
+import { existsSync, writeFileSync } from 'fs';
+import { resolve, jsonDb, datetime, filenamify, prompt, notify, html_game_list, handleSIGINT } from './src/util.js';
 import { cfg } from './src/config.js';
 
 const screenshot = (...a) => resolve(cfg.dir.screenshots, 'epic-games', ...a);
@@ -17,35 +17,23 @@ const db = await jsonDb('epic-games.json', {});
 
 if (cfg.time) console.time('startup');
 
-const browserPrefs = path.join(cfg.dir.browser, 'prefs.js');
-if (existsSync(browserPrefs)) {
-  console.log('Adding webgl.disabled to', browserPrefs);
-  appendFileSync(browserPrefs, 'user_pref("webgl.disabled", true);'); // apparently Firefox removes duplicates (and sorts), so no problem appending every time
-} else {
-  console.log(browserPrefs, 'does not exist yet, will patch it on next run. Restart the script if you get a captcha.');
-}
-
 // https://playwright.dev/docs/auth#multi-factor-authentication
-const context = await firefox.launchPersistentContext(cfg.dir.browser, {
-  headless: cfg.headless,
-  viewport: { width: cfg.width, height: cfg.height },
-  userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0', // see replace of Headless in util.newStealthContext. TODO Windows UA enough to avoid 'device not supported'? update if browser is updated?
-  // userAgent firefox (macOS): Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:106.0) Gecko/20100101 Firefox/106.0
-  // userAgent firefox (docker): Mozilla/5.0 (X11; Linux aarch64; rv:109.0) Gecko/20100101 Firefox/115.0
+const context = await launchContext({
+  channel: 'chrome',
+  args: [
+    '--ignore-gpu-blocklist',
+    '--use-gl=angle',
+    '--use-angle=gl-egl',
+  ],
+  headless: false,
+  viewport: null,
   locale: 'en-US', // ignore OS locale to be sure to have english text for locators
   recordVideo: cfg.record ? { dir: 'data/record/', size: { width: cfg.width, height: cfg.height } } : undefined, // will record a .webm video for each page navigated; without size, video would be scaled down to fit 800x800
   recordHar: cfg.record ? { path: `data/record/eg-${filenamify(datetime())}.har` } : undefined, // will record a HAR file with network requests and responses; can be imported in Chrome devtools
   handleSIGINT: false, // have to handle ourselves and call context.close(), otherwise recordings from above won't be saved
-  // user settings for firefox have to be put in $BROWSER_DIR/user.js
-  args: [ // https://wiki.mozilla.org/Firefox/CommandLineOptions
-    // '-kiosk',
-  ],
 });
 
 handleSIGINT(context);
-
-// Without stealth plugin, the website shows an hcaptcha on login with username/password and in the last step of claiming a game. It may have other heuristics like unsuccessful logins as well. After <6h (TBD) it resets to no captcha again. Getting a new IP also resets.
-await stealth(context);
 
 if (!cfg.debug) context.setDefaultTimeout(cfg.timeout);
 
@@ -107,12 +95,14 @@ try {
         console.error('Incorrect response for captcha!');
       }).catch(_ => { });
       await page.fill('#email', email);
-      // await page.click('button[type="submit"]'); login was split in two steps for some time, now email and password are on the same form again
+      // Epic switches between a single-step (email+password) and a two-step (email, then password) login form
+      if (await page.locator('button#continue').count()) await page.click('button#continue');
       const password = email && (cfg.eg_password || await prompt({ type: 'password', message: 'Enter password' }));
       if (!password) await notifyBrowserLogin();
       else {
         await page.fill('#password', password);
-        await page.click('button[type="submit"]');
+        // 'Sign in' for the two-step form, fall back to a generic submit for the single-step form
+        await page.locator('button#sign-in, button[type="submit"]').first().click();
       }
       const error = page.locator('#form-error-message');
       error.waitFor().then(async () => {
@@ -157,8 +147,13 @@ try {
   for (const url of urls) {
     if (cfg.time) console.time('claim game');
     await page.goto(url); // , { waitUntil: 'domcontentloaded' });
-    const purchaseBtn = page.locator('button[data-testid="purchase-cta-button"] >> :has-text("e"), :has-text("i")').first(); // when loading, the button text is empty -> need to wait for some text {'get', 'in library', 'requires base game'} -> just wait for e or i to not be too specific; :text-matches("\w+") somehow didn't work - https://github.com/vogler/free-games-claimer/issues/375
-    await purchaseBtn.waitFor();
+    // when loading, the button text is empty -> need to wait for some text {'get', 'in library', 'requires base game'} -> just wait for e or i to not be too specific; :text-matches("\w+") somehow didn't work - https://github.com/vogler/free-games-claimer/issues/375
+    await page.waitForFunction(() => {
+      // eslint-disable-next-line no-undef
+      const btn = document.querySelector('button[data-testid="purchase-cta-button"]');
+      return btn && (/[ei]/i).test(btn.textContent) && btn.textContent != 'Loading';
+    });
+    const purchaseBtn = page.locator('button[data-testid="purchase-cta-button"]').first();
     const btnText = (await purchaseBtn.innerText()).toLowerCase(); // barrier to block until page is loaded
 
     // click Continue if 'This game contains mature content recommended only for ages 18+'
@@ -263,7 +258,8 @@ try {
       }
 
       // Playwright clicked before button was ready to handle event, https://github.com/vogler/free-games-claimer/issues/84#issuecomment-1474346591
-      await iframe.locator('button:has-text("Place Order"):not(:has(.payment-loading--loading))').click({ delay: 11 });
+      // Epic renamed the checkout button from "Place Order" to "Add to library" (new "this game is free" layout) - support both
+      await iframe.locator('button:not(:has(.payment-loading--loading))').filter({ hasText: /Add to library|Place Order/ }).click({ delay: 11 });
 
       // I Agree button is only shown for EU accounts! https://github.com/vogler/free-games-claimer/pull/7#issuecomment-1038964872
       const btnAgree = iframe.locator('button:has-text("I Accept")');
@@ -287,7 +283,19 @@ try {
           console.error('  Failed to challenge captcha, please try again later.');
           await notify('epic-games: failed to challenge captcha. Please check.');
         }).catch(_ => { });
-        await page.locator('text=Thanks for your order!').waitFor({ state: 'attached' }); // TODO Bundle: got stuck here, but normal game now as well
+        // The confirmation differs between Epic layouts: "Thanks for your order!" on the old checkout,
+        // "It's all yours" etc. on the new one, or just the purchase button flipping to "In Library"; wait for whichever shows up
+        await Promise.any([
+          page.locator('text=Thanks for your order!').waitFor({ state: 'attached' }), // old checkout layout
+          page.locator('text=It\'s all yours').waitFor({ state: 'attached' }),
+          page.locator('text=Download the Epic Games Launcher to play').waitFor({ state: 'attached' }),
+          page.locator('text=Is Epic Games Launcher installed?').waitFor({ state: 'attached' }),
+          page.waitForFunction(() => { // new layout closes the iframe and flips the purchase button to "In Library"
+            // eslint-disable-next-line no-undef
+            const btn = document.querySelector('button[data-testid="purchase-cta-button"]');
+            return btn && (/in library/i).test(btn.textContent);
+          }),
+        ]);
         db.data[user][game_id].status = 'claimed';
         db.data[user][game_id].time = datetime(); // claimed time overwrites failed/dryrun time
         console.log('  Claimed successfully!');
