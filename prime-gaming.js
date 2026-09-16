@@ -102,17 +102,21 @@ try {
     process.exit(1);
   }
 
-  const waitUntilStable = async (f, act) => {
+  // Calls f() repeatedly while act() loads more content, until the value stops changing.
+  // Prints one compact progress line ("label .... done") instead of the raw value on every step.
+  const waitUntilStable = async (label, f, act) => {
     let v;
+    process.stdout.write(`${label} `);
     while (true) {
       const v2 = await f();
-      console.log('waitUntilStable', v2);
       if (v == v2) break;
       v = v2;
+      process.stdout.write('.');
       await act();
     }
+    console.log(' done');
   };
-  const scrollUntilStable = async f => await waitUntilStable(f, async () => {
+  const scrollUntilStable = async (label, f) => await waitUntilStable(label, f, async () => {
     // await page.keyboard.press('End'); // scroll to bottom to show all games
   // loading all games became flaky; see https://github.com/vogler/free-games-claimer/issues/357
     await page.keyboard.press('PageDown'); // scrolling to straight to the bottom started to skip loading some games
@@ -127,7 +131,7 @@ try {
   const games = page.locator('div[data-a-target="offer-list-FGWP_FULL"]');
   await games.waitFor();
   // await scrollUntilStable(() => games.locator('.item-card__action').count()); // number of games
-  await scrollUntilStable(() => page.evaluate(() => document.querySelector('.tw-full-width').scrollHeight)); // height may change during loading while number of games is still the same?
+  await scrollUntilStable('Loading all games', () => page.evaluate(() => document.querySelector('.tw-full-width').scrollHeight)); // height may change during loading while number of games is still the same?
   console.log('Number of already claimed games (total):', await games.locator('p:has-text("Collected")').count());
   // can't use .all() since the list of elements via locator will change after click while we iterate over it
   const internal = await games.locator('.item-card__action:has(button[data-a-target="FGWPOffer"])').elementHandles();
@@ -373,7 +377,7 @@ try {
   if (notify_games.length) { // make screenshot of all games if something was claimed
     const p = screenshot(`${filenamify(datetime())}.png`);
     // await page.screenshot({ path: p, fullPage: true }); // fullPage does not make a difference since scroll not on body but on some element
-    await scrollUntilStable(() => games.locator('.item-card__action').count());
+    await scrollUntilStable('Loading all games', () => games.locator('.item-card__action').count());
     const viewportSize = page.viewportSize(); // current viewport size
     await page.setViewportSize({ ...viewportSize, height: 3000 }); // increase height, otherwise element screenshot is cut off at the top and bottom
     await games.screenshot({ path: p }); // screenshot of all claimed games
@@ -386,10 +390,9 @@ try {
     const loot = page.locator('div[data-a-target="offer-list-IN_GAME_LOOT"]');
     await loot.waitFor();
 
-    process.stdout.write('Loading all DLCs on page...');
-    await scrollUntilStable(() => loot.locator('[data-a-target="item-card"]').count())
+    await scrollUntilStable('Loading all DLCs on page', () => loot.locator('[data-a-target="item-card"]').count());
 
-    console.log('\nNumber of already claimed DLC:', await loot.locator('p:has-text("Collected")').count());
+    console.log('Number of already claimed DLC:', await loot.locator('p:has-text("Collected")').count());
 
     const cards = await loot.locator('[data-a-target="item-card"]:has(p:text-is("Claim"))').all();
     console.log('Number of unclaimed DLC:', cards.length);
