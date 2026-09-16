@@ -27,65 +27,6 @@ export const handleSIGINT = (context = null) => process.on('SIGINT', async () =>
   if (context) await context.close(); // in order to save recordings also on SIGINT, we need to disable Playwright's handleSIGINT and close the context ourselves
 });
 
-export const launchChromium = async options => {
-  const { chromium } = await import('playwright-chromium'); // stealth plugin needs no outdated playwright-extra
-
-  // https://www.nopecha.com extension source from https://github.com/NopeCHA/NopeCHA/releases/tag/0.1.16
-  // const ext = path.resolve('nopecha'); // used in Chromium, currently not needed in Firefox
-
-  const context = chromium.launchPersistentContext(cfg.dir.browser, {
-    // chrome will not work in linux arm64, only chromium
-    // channel: 'chrome', // https://playwright.dev/docs/browsers#google-chrome--microsoft-edge
-    args: [ // https://peter.sh/experiments/chromium-command-line-switches
-      // don't want to see bubble 'Restore pages? Chrome didn't shut down correctly.'
-      // '--restore-last-session', // does not apply for crash/killed
-      '--hide-crash-restore-bubble',
-      // `--disable-extensions-except=${ext}`,
-      // `--load-extension=${ext}`,
-    ],
-    // ignoreDefaultArgs: ['--enable-automation'], // remove default arg that shows the info bar with 'Chrome is being controlled by automated test software.'. Since Chromeium 106 this leads to show another info bar with 'You are using an unsupported command-line flag: --no-sandbox. Stability and security will suffer.'.
-    ...options,
-  });
-  return context;
-};
-
-export const stealth = async context => {
-  // stealth with playwright: https://github.com/berstend/puppeteer-extra/issues/454#issuecomment-917437212
-  // https://github.com/berstend/puppeteer-extra/tree/master/packages/puppeteer-extra-plugin-stealth/evasions
-  const enabledEvasions = [
-    'chrome.app',
-    'chrome.csi',
-    'chrome.loadTimes',
-    'chrome.runtime',
-    // 'defaultArgs',
-    'iframe.contentWindow',
-    'media.codecs',
-    'navigator.hardwareConcurrency',
-    'navigator.languages',
-    'navigator.permissions',
-    'navigator.plugins',
-    // 'navigator.vendor',
-    'navigator.webdriver',
-    'sourceurl',
-    // 'user-agent-override', // doesn't work since playwright has no page.browser()
-    'webgl.vendor',
-    'window.outerdimensions',
-  ];
-  const stealth = {
-    callbacks: [],
-    async evaluateOnNewDocument(...args) {
-      this.callbacks.push({ cb: args[0], a: args[1] });
-    },
-  };
-  for (const e of enabledEvasions) {
-    const evasion = await import(`puppeteer-extra-plugin-stealth/evasions/${e}/index.js`);
-    evasion.default().onPageCreated(stealth);
-  }
-  for (const evasion of stealth.callbacks) {
-    await context.addInitScript(evasion.cb, evasion.a);
-  }
-};
-
 // used prompts before, but couldn't cancel prompt
 // alternative inquirer is big (node_modules 29MB, enquirer 9.7MB, prompts 9.8MB, none 9.4MB) and slower
 // open issue: prevents handleSIGINT() to work if prompt is cancelled with Ctrl-C instead of Escape: https://github.com/enquirer/enquirer/issues/372

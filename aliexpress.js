@@ -1,5 +1,5 @@
-import { firefox } from 'playwright-firefox'; // stealth plugin needs no outdated playwright-extra
-import { datetime, filenamify, prompt, handleSIGINT, stealth } from './src/util.js';
+import { launchContext } from './src/browser.js';
+import { datetime, filenamify, prompt, handleSIGINT } from './src/util.js';
 import { cfg } from './src/config.js';
 
 // using https://github.com/apify/fingerprint-suite worked, but has no launchPersistentContext...
@@ -12,7 +12,8 @@ const { fingerprint, headers } = new FingerprintGenerator().getFingerprint({
     operatingSystems: ["android"],
 });
 
-const context = await firefox.launchPersistentContext(cfg.dir.browser, {
+const context = await launchContext(cfg, {
+  channel: 'chrome',
   headless: cfg.headless,
   // viewport: { width: cfg.width, height: cfg.height },
   locale: 'en-US', // ignore OS locale to be sure to have english text for locators -> done via /en in URL
@@ -29,7 +30,6 @@ const context = await firefox.launchPersistentContext(cfg.dir.browser, {
   },
 });
 handleSIGINT(context);
-// await stealth(context);
 await new FingerprintInjector().attachFingerprintToPlaywright(context, { fingerprint, headers });
 
 context.setDefaultTimeout(cfg.debug ? 0 : cfg.timeout);

@@ -1,0 +1,3 @@
+# Keep all line endings LF regardless of the platform / core.autocrlf setting
+# (the ESLint config enforces LF and CI runs on Linux)
+* text=auto eol=lf
