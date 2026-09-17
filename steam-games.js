@@ -12,8 +12,8 @@ import { FingerprintInjector } from 'fingerprint-injector';
 import { FingerprintGenerator } from 'fingerprint-generator';
 
 const { fingerprint, headers } = new FingerprintGenerator().getFingerprint({
-    devices: ["desktop"],
-    operatingSystems: ["windows"],
+  devices: ['desktop'],
+  operatingSystems: ['windows'],
 });
 
 const context = await launchContext(cfg, {
@@ -23,11 +23,11 @@ const context = await launchContext(cfg, {
   locale: 'en-US', // ignore OS locale to be sure to have english text for locators -> done via /en in URL
   userAgent: fingerprint.navigator.userAgent,
   viewport: {
-      width: fingerprint.screen.width,
-      height: fingerprint.screen.height,
+    width: fingerprint.screen.width,
+    height: fingerprint.screen.height,
   },
   extraHTTPHeaders: {
-      'accept-language': headers['accept-language'],
+    'accept-language': headers['accept-language'],
   },
 });
 await new FingerprintInjector().attachFingerprintToPlaywright(context, { fingerprint, headers });

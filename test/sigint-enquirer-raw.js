@@ -7,6 +7,7 @@ import { prompt, handleSIGINT } from '../src/util.js';
 // });
 handleSIGINT();
 
+// eslint-disable-next-line no-unused-vars
 function onRawSIGINT(fn) {
   const { stdin, stdout } = process;
   stdin.setRawMode(true);

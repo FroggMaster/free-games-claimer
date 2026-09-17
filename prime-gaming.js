@@ -131,6 +131,7 @@ try {
   const games = page.locator('div[data-a-target="offer-list-FGWP_FULL"]');
   await games.waitFor();
   // await scrollUntilStable(() => games.locator('.item-card__action').count()); // number of games
+  // eslint-disable-next-line no-undef
   await scrollUntilStable('Loading all games', () => page.evaluate(() => document.querySelector('.tw-full-width').scrollHeight)); // height may change during loading while number of games is still the same?
   console.log('Number of already claimed games (total):', await games.locator('p:has-text("Collected")').count());
   // can't use .all() since the list of elements via locator will change after click while we iterate over it
@@ -139,25 +140,25 @@ try {
   // bottom to top: oldest to newest games
   internal.reverse();
   external.reverse();
-  const sameOrNewPage = async url => new Promise(async (resolve, _reject) => {
+  const sameOrNewPage = async url => {
     const isNew = page.url() != url;
     let p = page;
     if (isNew) {
       p = await context.newPage();
       await p.goto(url, { waitUntil: 'domcontentloaded' });
     }
-    resolve([p, isNew]);
-  });
+    return [p, isNew];
+  };
   const skipBasedOnTime = async url => {
     // console.log('  Checking time left for game:', url);
     const [p, isNew] = await sameOrNewPage(url);
     const dueDateOrg = await p.locator('.availability-date .tw-bold').innerText();
     const dueDate = new Date(Date.parse(dueDateOrg + ' 17:00'));
-    const daysLeft = (dueDate.getTime() - Date.now())/1000/60/60/24;
+    const daysLeft = (dueDate.getTime() - Date.now()) / 1000 / 60 / 60 / 24;
     console.log(' ', await p.locator('.availability-date').innerText(), '->', daysLeft.toFixed(2));
     if (isNew) await p.close();
     return daysLeft > cfg.pg_timeLeft;
-  }
+  };
   console.log('\nNumber of free unclaimed games (Prime Gaming):', internal.length);
   // claim games in internal store
   for (const card of internal) {
@@ -325,7 +326,7 @@ try {
                 if (j?.events?.cart.length && j.events.cart[0]?.data?.reason == 'UserAlreadyOwnsContent') {
                   redeem_action = 'already redeemed';
                   console.error('  error: UserAlreadyOwnsContent');
-                } else if (true) { // TODO what's returned on success?
+                } else { // TODO what's returned on success?
                   redeem_action = 'redeemed';
                   db.data[user][title].status = 'claimed and redeemed?';
                   console.log('  Redeemed successfully? Please report if not in https://github.com/vogler/free-games-claimer/issues/5');
