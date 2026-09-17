@@ -48,7 +48,7 @@ If you don't want to use Docker for quasi-headless mode, you could run inside a 
 </details>
 
 ## Usage
-All scripts start an automated browser instance via Patchright (Chromium). `epic-games`, `prime-gaming`, `gog` and `unrealengine` run with the browser shown to avoid captcha challenges; `aliexpress` and `steam-games` run hidden unless `SHOW=1` is set.
+All scripts start an automated browser instance via Patchright (Chromium). `epic-games`, `prime-gaming`, `gog` and `unrealengine` run with the browser shown to avoid captcha challenges; `aliexpress`, `steam` and `steam-games` run hidden unless `SHOW=1` is set.
 
 - When running inside Docker, the browser will be shown only inside the container. You can open http://localhost:6080 to interact with the browser running inside the container via noVNC (or use other VNC clients on port 5900).
 - When running the scripts outside of Docker, the browser is hidden by default for the scripts that follow the `SHOW` option; you can use `SHOW=1 ...` to show the UI (see options below).
@@ -93,6 +93,9 @@ Available options/variables and their default values:
 | GOG_PASSWORD  	|         	| GOG password for login. Overrides PASSWORD.                            	|
 | GOG_NEWSLETTER	| 0       	| Do not unsubscribe from newsletter after claiming a game if 1.         	|
 | LG_EMAIL        |         	| Legacy Games: email to use for redeeming (if not set, defaults to PG_EMAIL)  |
+| STEAM_USERNAME  |         	| Steam account name for login. Overrides EMAIL.                         	|
+| STEAM_PASSWORD  |         	| Steam password for login. Overrides PASSWORD.                          	|
+| STEAM_ID        |         	| Steam community id for the owned games export (`steam-games`).         	|
 
 See `src/config.js` for all options.
 

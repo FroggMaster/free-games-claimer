@@ -45,6 +45,10 @@ export const cfg = {
   // auth AliExpress
   ae_email: process.env.AE_EMAIL || process.env.EMAIL,
   ae_password: process.env.AE_PASSWORD || process.env.PASSWORD,
+  // auth Steam
+  steam_username: process.env.STEAM_USERNAME || process.env.EMAIL,
+  steam_password: process.env.STEAM_PASSWORD || process.env.PASSWORD,
+  steam_id: process.env.STEAM_ID, // steam-games: community id for the library export
   // OTP only via GOG_EMAIL, can't add app...
   // experimmental
   pg_redeem: process.env.PG_REDEEM == '1', // prime-gaming: redeem keys on external stores

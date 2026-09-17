@@ -15,6 +15,9 @@ node epic-games
 :: set SHOW=0
 node prime-gaming
 node gog
+node steam
+:: steam-games exports your owned games to data/steam-games.json (slow), enable if wanted
+:: node steam-games
 
 echo Complete
 pause
